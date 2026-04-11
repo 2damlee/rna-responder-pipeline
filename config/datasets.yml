@@ -3,12 +3,18 @@ datasets:
     source_type: geo
     expression_value_column: VALUE
 
-    # to be confirmed after raw metadata inspection
     sample_id_column: geo_accession
 
-    # candidate fields only; must be confirmed from phenotype_data
-    response_label_fields: []
-    timepoint_fields: []
+    response_label_fields:
+      - characteristics_ch1.1.anti-pd-1 response
 
-    response_mapping: {}
-    baseline_values: []
+    timepoint_fields:
+      - characteristics_ch1.12.biopsy time
+
+    response_mapping:
+      Complete Response: responder
+      Partial Response: responder
+      Progressive Disease: non_responder
+
+    baseline_values:
+      - pre-treatment
