@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+
+data/raw/
+data/processed/
+data/curated/
+outputs/
+logs/
+
+target/
+dbt_packages/
