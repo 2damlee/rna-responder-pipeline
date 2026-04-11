@@ -23,12 +23,15 @@ Parsing decision:
 - `Progressive Disease` -> `non_responder`
 
 Notes:
-- No `Stable Disease` value was observed in the initial inspection output.
 - Mapping is restricted to observed labels only.
 
 ### timepoint field
-Selected field:
+Primary field:
 - `characteristics_ch1.12.biopsy time`
+
+Fallback fields:
+- `characteristics_ch1.13.biopsy time`
+- `characteristics_ch1.11.biopsy time`
 
 Observed raw values:
 - `pre-treatment`
@@ -38,16 +41,33 @@ Parsing decision:
 - `pre-treatment` -> `baseline`
 - `on-treatment` remains non-baseline
 
+Notes:
+- biopsy time values appear across multiple sparse columns in phenotype_data
+- parser uses ordered fallback lookup across the configured timepoint fields
+
 ### sample id decision
 Selected field:
 - `geo_accession`
 
 Rationale:
 - standard GEO sample identifier format (`GSM...`)
-- likely join key for expression matrix columns
+- expected join key for expression matrix columns
 
 ### implementation notes
 - use explicit mapping only
 - do not use substring matching for response labels
-- start with a single primary field for response and timepoint
-- add fallback fields only if later validation shows missingness
+- keep registry-driven field selection
+- use fallback fields only where missingness is observed
+
+### expression extraction note
+- `GEOparse.pivot_samples("VALUE")` failed with `KeyError: 'ID_REF'`
+- this indicates the GEO sample tables for GSE78220 do not match the standard pivot_samples expectation
+- next step is to inspect GSM sample table structure directly before choosing the extraction path
+- expression matrix may need to be loaded from supplementary processed files instead of sample tables
+
+### expression source decision
+- GEO family SOFT for GSE78220 does not contain usable sample or platform tables for expression extraction
+- `GEOparse.pivot_samples()` is not valid for this dataset
+- expression data should be loaded from the processed supplementary file on the GEO series record
+- selected expression source: `GSE78220_PatientFPKM.xlsx`
+- metadata and expression should be joined after inspecting the Excel sheet structure and sample identifier format

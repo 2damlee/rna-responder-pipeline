@@ -36,20 +36,14 @@ def main():
     print("\n=== timepoint counts ===")
     print(parsed["timepoint"].value_counts(dropna=False))
 
-    print("\n=== sample-level response summary ===")
-    print(
-        parsed[["sample_id", "response_label"]]
-        .drop_duplicates()
-        .sort_values("sample_id")
-        .head(10)
-    )
+    print("\n=== missing summary ===")
+    print("missing response_label:", parsed["response_label"].isna().sum())
+    print("missing timepoint:", parsed["timepoint"].isna().sum())
 
-    print("\n=== sample-level timepoint summary ===")
+    print("\n=== rows with missing timepoint ===")
     print(
-        parsed[["sample_id", "timepoint"]]
-        .drop_duplicates()
+        parsed.loc[parsed["timepoint"].isna(), ["sample_id", "timepoint_raw"]]
         .sort_values("sample_id")
-        .head(10)
     )
 
 

@@ -10,6 +10,8 @@ datasets:
 
     timepoint_fields:
       - characteristics_ch1.12.biopsy time
+      - characteristics_ch1.13.biopsy time
+      - characteristics_ch1.11.biopsy time
 
     response_mapping:
       Complete Response: responder
