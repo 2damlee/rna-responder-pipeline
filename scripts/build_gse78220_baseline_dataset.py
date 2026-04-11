@@ -8,6 +8,7 @@ from pipeline.tasks.parse_metadata import parse_metadata
 
 ACCESSION = "GSE78220"
 EXPRESSION_FILE = Path("data/raw/geo/GSE78220_PatientFPKM.xlsx")
+EXPRESSION_SHEET = "FPKM"
 
 
 def load_dataset_config(accession: str) -> dict:
@@ -27,6 +28,22 @@ def load_gse(accession: str):
     return GEOparse.get_GEO(geo=accession, destdir=str(geo_dir))
 
 
+def build_expression_sample_key(patient_label: str, timepoint: str) -> str | None:
+    if pd.isna(patient_label) or pd.isna(timepoint):
+        return None
+
+    patient_label = str(patient_label).strip()
+
+    if timepoint == "baseline":
+        timepoint_token = "baseline"
+    elif timepoint == "on-treatment":
+        timepoint_token = "OnTx"
+    else:
+        return None
+
+    return f"{patient_label}.{timepoint_token}"
+
+
 def load_expression_from_excel() -> pd.DataFrame:
     if not EXPRESSION_FILE.exists():
         raise FileNotFoundError(
@@ -34,14 +51,14 @@ def load_expression_from_excel() -> pd.DataFrame:
             "Run scripts/download_gse78220_expression_file.py first."
         )
 
-    # inspection 결과 보고 sheet_name 조정
-    df = pd.read_excel(EXPRESSION_FILE)
+    expr = pd.read_excel(EXPRESSION_FILE, sheet_name=EXPRESSION_SHEET)
 
-    # inspection 결과 보고 gene id 컬럼명 조정
-    first_col = df.columns[0]
-    df = df.rename(columns={first_col: "gene_id"})
+    if "Gene" not in expr.columns:
+        raise KeyError("Expected 'Gene' column in supplementary expression file.")
 
-    expr_long = df.melt(
+    expr = expr.rename(columns={"Gene": "gene_id"})
+
+    expr_long = expr.melt(
         id_vars="gene_id",
         var_name="expression_sample_key",
         value_name="expression",
@@ -57,13 +74,39 @@ def load_expression_from_excel() -> pd.DataFrame:
 def prepare_metadata_for_join(meta: pd.DataFrame, dataset_cfg: dict) -> pd.DataFrame:
     parsed = parse_metadata(meta, dataset_cfg).copy()
 
-    # GSE78220에서는 title이 Pt1, Pt2... 형태로 보였음
-    parsed["expression_sample_key"] = meta["title"].astype(str).str.strip().values
+    parsed["patient_label"] = meta["title"].astype(str).str.strip().values
+    parsed["expression_sample_key"] = parsed.apply(
+        lambda row: build_expression_sample_key(
+            row["patient_label"],
+            row["timepoint"],
+        ),
+        axis=1,
+    )
 
     return parsed
 
 
-def build_qc_summary(expr_long, parsed_meta, merged, baseline) -> pd.DataFrame:
+def validate_join_keys(parsed_meta: pd.DataFrame, expr_long: pd.DataFrame) -> None:
+    expression_keys = set(expr_long["expression_sample_key"].dropna().unique())
+
+    unmatched = parsed_meta.loc[
+        ~parsed_meta["expression_sample_key"].isin(expression_keys),
+        ["sample_id", "patient_label", "timepoint", "expression_sample_key"],
+    ].copy()
+
+    if not unmatched.empty:
+        raise ValueError(
+            "Some metadata-derived expression join keys were not found in the supplementary "
+            f"expression file.\nUnmatched rows:\n{unmatched.to_string(index=False)}"
+        )
+
+
+def build_qc_summary(
+    expr_long: pd.DataFrame,
+    parsed_meta: pd.DataFrame,
+    merged: pd.DataFrame,
+    baseline: pd.DataFrame,
+) -> pd.DataFrame:
     return pd.DataFrame(
         {
             "metric": [
@@ -108,13 +151,15 @@ def main():
 
     meta = gse.phenotype_data.copy()
     parsed_meta = prepare_metadata_for_join(meta, dataset_cfg)
-
     expr_long = load_expression_from_excel()
+
+    validate_join_keys(parsed_meta, expr_long)
 
     merged = expr_long.merge(
         parsed_meta[
             [
                 "sample_id",
+                "patient_label",
                 "expression_sample_key",
                 "response_label",
                 "timepoint",

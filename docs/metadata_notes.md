@@ -71,3 +71,15 @@ Rationale:
 - expression data should be loaded from the processed supplementary file on the GEO series record
 - selected expression source: `GSE78220_PatientFPKM.xlsx`
 - metadata and expression should be joined after inspecting the Excel sheet structure and sample identifier format
+
+### expression join key decision
+- supplementary file columns use the format `{patient_label}.{timepoint_token}`
+- observed examples:
+  - `Pt1.baseline`
+  - `Pt16.OnTx`
+  - `Pt27A.baseline`
+- metadata join key should be built from:
+  - `title` as patient label
+  - normalized timepoint token:
+    - `baseline` -> `baseline`
+    - `on-treatment` -> `OnTx`
