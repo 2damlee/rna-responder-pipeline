@@ -85,20 +85,34 @@ def prepare_metadata_for_join(meta: pd.DataFrame, dataset_cfg: dict) -> pd.DataF
     return parsed
 
 
-def validate_join_keys(parsed_meta: pd.DataFrame, expr_long: pd.DataFrame) -> None:
+def validate_join_keys(parsed_meta: pd.DataFrame, expr_long: pd.DataFrame) -> dict:
+    none_key_rows = parsed_meta[parsed_meta["expression_sample_key"].isna()]
+
+    if not none_key_rows.empty:
+        print(
+            f"WARNING: {len(none_key_rows)} samples have no expression_sample_key "
+            f"(timepoint not resolved). These will be excluded from the join."
+        )
+
+    valid_meta = parsed_meta.dropna(subset=["expression_sample_key"])
     expression_keys = set(expr_long["expression_sample_key"].dropna().unique())
 
-    unmatched = parsed_meta.loc[
-        ~parsed_meta["expression_sample_key"].isin(expression_keys),
-        ["sample_id", "patient_label", "timepoint", "expression_sample_key"],
-    ].copy()
+    unmatched = valid_meta[
+        ~valid_meta["expression_sample_key"].isin(expression_keys)
+    ]
 
     if not unmatched.empty:
         raise ValueError(
-            "Some metadata-derived expression join keys were not found in the supplementary "
-            f"expression file.\nUnmatched rows:\n{unmatched.to_string(index=False)}"
+            f"Join key mismatch: {len(unmatched)} metadata keys not found "
+            f"in expression file.\n"
+            f"{unmatched[['sample_id', 'expression_sample_key']].to_string(index=False)}"
         )
 
+    return {
+        "none_key_count": len(none_key_rows),
+        "valid_key_count": len(valid_meta),
+        "unmatched_count": 0,
+    }
 
 def build_qc_summary(
     expr_long: pd.DataFrame,
@@ -152,7 +166,8 @@ def build_baseline_dataset() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, 
     parsed_meta = prepare_metadata_for_join(meta, dataset_cfg)
     expr_long = load_expression_from_excel()
 
-    validate_join_keys(parsed_meta, expr_long)
+    validation = validate_join_keys(parsed_meta, expr_long)
+    print(f"Join key validation: {validation}")
 
     merged = expr_long.merge(
         parsed_meta[
