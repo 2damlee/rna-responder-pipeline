@@ -6,7 +6,9 @@ __pycache__/
 data/raw/
 data/processed/
 data/curated/
-outputs/
+outputs/figures/
+outputs/tables/
+!outputs/tables/gse78220_qc_summary.csv
 logs/
 
 target/

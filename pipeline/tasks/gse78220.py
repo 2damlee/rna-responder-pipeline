@@ -4,6 +4,7 @@ import pandas as pd
 import GEOparse
 
 from pipeline.tasks.parse_metadata import parse_metadata
+from pipeline.utils.config_loader import load_dataset_config
 
 
 ACCESSION = "GSE78220"
