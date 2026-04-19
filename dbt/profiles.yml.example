@@ -1,0 +1,7 @@
+rna_pipeline:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "data/curated/rna_responder.duckdb"
+      threads: 4

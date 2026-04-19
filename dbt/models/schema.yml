@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: stg_gse78220_expression
+    columns:
+      - name: gene_id
+        tests:
+          - not_null
+      - name: sample_id
+        tests:
+          - not_null
+      - name: response_label
+        tests:
+          - accepted_values:
+              values: ['responder', 'non_responder']
+
+  - name: int_baseline_log_expression
+    columns:
+      - name: log2_expression
+        tests:
+          - not_null
+
+  - name: mart_top_differential_genes
+    columns:
+      - name: gene_id
+        tests:
+          - not_null
+      - name: abs_mean_diff
+        tests:
+          - not_null
