@@ -12,7 +12,8 @@ models:
       - name: response_label
         tests:
           - accepted_values:
-              values: ['responder', 'non_responder']
+              arguments:
+                values: ['responder', 'non_responder']
 
   - name: int_baseline_log_expression
     columns:
