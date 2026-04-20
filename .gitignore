@@ -6,8 +6,12 @@ __pycache__/
 data/raw/
 data/processed/
 data/curated/
-outputs/
-logs/
 
+outputs/*
+!outputs/tables/
+outputs/tables/*
+!outputs/tables/gse78220_qc_summary.csv
+
+logs/
 target/
 dbt_packages/
