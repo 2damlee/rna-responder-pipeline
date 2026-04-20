@@ -1,25 +1,14 @@
 from pathlib import Path
-import yaml
 import pandas as pd
 import GEOparse
 
 from pipeline.tasks.parse_metadata import parse_metadata
+from pipeline.utils.config_loader import load_dataset_config
 
 
 ACCESSION = "GSE78220"
 EXPRESSION_FILE = Path("data/raw/geo/GSE78220_PatientFPKM.xlsx")
 EXPRESSION_SHEET = "FPKM"
-
-
-def load_dataset_config(accession: str) -> dict:
-    with open("config/datasets.yml", "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-
-    for dataset in config["datasets"]:
-        if dataset["accession"] == accession:
-            return dataset
-
-    raise ValueError(f"Dataset config not found: {accession}")
 
 
 def load_gse(accession: str = ACCESSION):
