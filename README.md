@@ -45,10 +45,13 @@ dbt models run against a local DuckDB file. The layered modeling structure (stag
 
 | Metric | Value |
 |---|---|
-| Total samples | 28 |
+| Total samples (metadata) | 28 |
+| Baseline cohort samples | 27 |
+| Genes in expression matrix | 25,268 |
+| Baseline expression rows | 682,236 |
+| Null response labels | 0 |
+| Null expression values | 0 |
 | Response field | `characteristics_ch1.1.anti-pd-1 response` |
-| Observed response values | Complete Response, Partial Response, Progressive Disease |
-| Timepoint field | `characteristics_ch1.12.biopsy time` (with fallback fields) |
 | Expression source | `GSE78220_PatientFPKM.xlsx` (supplementary file) |
 | Expression format | FPKM, wide format → long format after ingestion |
 
@@ -56,6 +59,10 @@ Response mapping:
 - `Complete Response` → `responder`
 - `Partial Response` → `responder`
 - `Progressive Disease` → `non_responder`
+
+One sample has no resolvable baseline timepoint and is excluded from the cohort. This is logged as a warning during `validate_join_keys()`, not silently dropped.
+
+Full QC metrics: `outputs/tables/gse78220_qc_summary.csv`
 
 See `docs/metadata_notes.md` for the full inspection record and parsing decisions.
 
@@ -104,6 +111,7 @@ dbt/
       int_gene_group_stats.sql         # per-gene group statistics
     marts/
       mart_top_differential_genes.sql  # responder vs non_responder delta
+    schema.yml                         # dbt model tests
 
 analysis/
   utils.py                  # DuckDB connection, shared loaders
@@ -113,6 +121,10 @@ analysis/
     boxplot.py              # boxplots of top 5 candidate genes
   notebooks/
     gse78220_eda.ipynb      # exploratory analysis
+
+outputs/
+  tables/
+    gse78220_qc_summary.csv           # pipeline QC metrics (committed)
 
 docs/
   metadata_notes.md         # raw inspection record, parsing decisions
@@ -152,61 +164,66 @@ python pipeline/flows/ingest_geo.py
 python scripts/build_gse78220_baseline_dataset.py
 ```
 
-Both produce the same outputs in `data/processed/gse78220/`.
+Both produce the same outputs in `data/processed/gse78220/`:
+- `parsed_metadata.parquet`
+- `expression_long.parquet`
+- `baseline_long.parquet`
+
+And `outputs/tables/gse78220_qc_summary.csv`.
 
 ### 4. Run dbt models
 
 ```bash
-# Copy and configure the profiles file
 cp dbt/profiles.yml.example ~/.dbt/profiles.yml
-# Edit to set path if needed
 
 cd dbt
 dbt run
 dbt test
 ```
 
+This builds the DuckDB file at `data/curated/rna_responder.duckdb` with all four models.
+
 ### 5. Run analysis scripts
 
 ```bash
+# Run from project root
 python analysis/scripts/pca.py
 python analysis/scripts/heatmap.py
 python analysis/scripts/boxplot.py
 ```
 
-Figures are saved to `outputs/figures/`, supporting tables to `outputs/tables/`.
+Figures saved to `outputs/figures/`, supporting tables to `outputs/tables/`.
 
 ---
 
 ## dbt model overview
 
-| Model | Layer | What it does |
-|---|---|---|
-| `stg_gse78220_expression` | staging | Reads parquet, casts types, removes nulls |
-| `int_baseline_log_expression` | intermediate | log2(expression + 1) transform, baseline + labeled samples only |
-| `int_gene_group_stats` | intermediate | Per-gene mean and stddev by response group |
-| `mart_top_differential_genes` | marts | Genes ranked by absolute mean difference between groups |
+| Model | Layer | Materialization | What it does |
+|---|---|---|---|
+| `stg_gse78220_expression` | staging | view | Reads parquet, casts types, removes nulls |
+| `int_baseline_log_expression` | intermediate | view | log2(expression + 1) transform, baseline + labeled samples only |
+| `int_gene_group_stats` | intermediate | view | Per-gene mean and stddev by response group |
+| `mart_top_differential_genes` | marts | table | Genes ranked by absolute mean difference between groups |
 
-The analysis scripts read from `int_baseline_log_expression` (for sample-level data) and `mart_top_differential_genes` (for gene rankings). No script reads directly from parquet files.
+Analysis scripts read from `int_baseline_log_expression` (sample-level data) and `mart_top_differential_genes` (gene rankings) via DuckDB. No script reads parquet files directly.
 
 ---
 
 ## Analysis outputs
 
-### PCA
-`outputs/figures/gse78220_pca_top500_variable_genes.png`
+### PCA — `outputs/figures/gse78220_pca_top500_variable_genes.png`
 
-Baseline samples projected onto PC1/PC2 after variance-based gene filtering (top 500 genes) and StandardScaler normalization. Explained variance ratio is shown on each axis.
+Baseline samples projected onto PC1/PC2 after variance-based gene filtering (top 500 genes by variance) and StandardScaler normalization. Explained variance ratio is shown on each axis. Each point is labeled with its sample ID.
 
-### Heatmap
-`outputs/figures/gse78220_top30_heatmap.png`
+### Heatmap — `outputs/figures/gse78220_top30_heatmap.png`
 
 Log2 expression values for the top 30 genes by absolute mean difference, with samples sorted by response label.
 
-### Boxplot
-`outputs/figures/gse78220_candidate_gene_boxplots.png`
+### Boxplot — `outputs/figures/gse78220_candidate_gene_boxplots.png`
 
 Expression distribution by response group for the top 5 candidate genes from `mart_top_differential_genes`.
+
+Supporting tables for all three are saved to `outputs/tables/`.
 
 ---
 
@@ -219,7 +236,7 @@ This is exploratory comparison, not formal differential expression analysis. It 
 - Control for batch effects or other covariates
 - Make causal or clinical claims about biomarkers
 
-The cohort is small (28 samples). The analysis is intended to demonstrate data pipeline design, not to produce publication-ready results.
+The cohort is 27 baseline samples. The analysis is intended to demonstrate data pipeline design, not to produce publication-ready results.
 
 ---
 
@@ -227,10 +244,9 @@ The cohort is small (28 samples). The analysis is intended to demonstrate data p
 
 The expression data source is FPKM values from a supplementary Excel file. GEO datasets don't always provide this in a consistent format — other datasets may require different extraction logic, which is why the parser is registry-driven rather than hardcoded.
 
-The `validate_join_keys()` function currently raises an error on unmatched keys. Samples without a resolvable timepoint token are excluded as warnings. Edge cases with multiple valid timepoints per sample are not yet handled.
+The `validate_join_keys()` function raises on key mismatches but excludes unresolvable-timepoint samples with a warning. One sample in GSE78220 falls into this category.
 
 Planned next steps:
 
-- Run the pipeline end-to-end and commit `outputs/tables/gse78220_qc_summary.csv` with concrete cohort numbers
-- Add a second dataset (GSE91061) to demonstrate parser reuse and multi-study schema handling
-- Optional: S3 upload for processed parquets and Athena-based `dbt-athena` migration to validate the "Athena-ready" claim in practice
+- Add a second dataset (GSE91061) to demonstrate parser reuse and multi-study schema handling across `datasets.yml`
+- Optional: upload processed parquets to S3 and migrate dbt models to `dbt-athena` to validate the "Athena-ready" design claim in practice
