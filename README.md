@@ -211,6 +211,15 @@ Analysis scripts read from `int_baseline_log_expression` (sample-level data) and
 
 ## Analysis outputs
 
+### PCA
+![PCA](outputs/figures/gse78220_pca_top500_variable_genes.png)
+
+### Heatmap
+![Heatmap](outputs/figures/gse78220_top30_heatmap.png)
+
+### Boxplot
+![Boxplot](outputs/figures/gse78220_candidate_gene_boxplots.png)
+
 ### PCA — `outputs/figures/gse78220_pca_top500_variable_genes.png`
 
 Baseline samples projected onto PC1/PC2 after variance-based gene filtering (top 500 genes by variance) and StandardScaler normalization. Explained variance ratio is shown on each axis. Each point is labeled with its sample ID.

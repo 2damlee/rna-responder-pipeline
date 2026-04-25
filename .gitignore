@@ -9,10 +9,13 @@ data/curated/
 
 outputs/*
 !outputs/tables/
+!outputs/figures/
 outputs/tables/*
+outputs/figures/*
 !outputs/tables/gse78220_qc_summary.csv
-
-outputs/figures/
+!outputs/tables/gse78220_pca_coordinates.csv
+!outputs/tables/gse78220_heatmap_matrix_top30.csv
+!outputs/tables/gse78220_top5_differential_genes.csv
 !outputs/figures/gse78220_pca_top500_variable_genes.png
 !outputs/figures/gse78220_top30_heatmap.png
 !outputs/figures/gse78220_candidate_gene_boxplots.png
