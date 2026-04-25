@@ -18,3 +18,6 @@ models:
       +materialized: view
     marts:
       +materialized: table
+
+vars:
+  processed_dir: "data/processed/gse78220"

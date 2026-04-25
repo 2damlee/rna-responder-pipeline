@@ -22,7 +22,7 @@ def load_baseline_log_expression() -> pd.DataFrame:
             log2_expression,
             response_label,
             dataset_accession
-        from main.int_baseline_log_expression
+        from int_baseline_log_expression
         """
         return con.execute(query).df()
     finally:
@@ -38,7 +38,7 @@ def load_top_differential_genes(limit: int = 30) -> pd.DataFrame:
             responder_mean,
             non_responder_mean,
             abs_mean_diff
-        from main.mart_top_differential_genes
+        from mart_top_differential_genes
         order by abs_mean_diff desc
         limit {limit}
         """
