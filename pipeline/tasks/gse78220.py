@@ -1,4 +1,5 @@
 from pathlib import Path
+import yaml
 import pandas as pd
 import GEOparse
 
@@ -9,6 +10,17 @@ from pipeline.utils.config_loader import load_dataset_config
 ACCESSION = "GSE78220"
 EXPRESSION_FILE = Path("data/raw/geo/GSE78220_PatientFPKM.xlsx")
 EXPRESSION_SHEET = "FPKM"
+
+
+def load_dataset_config(accession: str = ACCESSION) -> dict:
+    with open("config/datasets.yml", "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
+    for dataset in config["datasets"]:
+        if dataset["accession"] == accession:
+            return dataset
+
+    raise ValueError(f"Dataset config not found: {accession}")
 
 
 def load_gse(accession: str = ACCESSION):
@@ -35,7 +47,9 @@ def build_expression_sample_key(patient_label: str, timepoint: str) -> str | Non
 
 def load_expression_from_excel() -> pd.DataFrame:
     if not EXPRESSION_FILE.exists():
-        raise FileNotFoundError(f"Missing expression file: {EXPRESSION_FILE}")
+        raise FileNotFoundError(
+            f"Missing expression file: {EXPRESSION_FILE}"
+        )
 
     expr = pd.read_excel(EXPRESSION_FILE, sheet_name=EXPRESSION_SHEET)
 
@@ -84,15 +98,15 @@ def validate_join_keys(parsed_meta: pd.DataFrame, expr_long: pd.DataFrame) -> di
     valid_meta = parsed_meta.dropna(subset=["expression_sample_key"])
     expression_keys = set(expr_long["expression_sample_key"].dropna().unique())
 
-    unmatched = valid_meta.loc[
-        ~valid_meta["expression_sample_key"].isin(expression_keys),
-        ["sample_id", "patient_label", "timepoint", "expression_sample_key"],
-    ].copy()
+    unmatched = valid_meta[
+        ~valid_meta["expression_sample_key"].isin(expression_keys)
+    ]
 
     if not unmatched.empty:
         raise ValueError(
-            "Some metadata-derived expression join keys were not found in the supplementary "
-            f"expression file.\nUnmatched rows:\n{unmatched.to_string(index=False)}"
+            f"Join key mismatch: {len(unmatched)} metadata keys not found "
+            f"in expression file.\n"
+            f"{unmatched[['sample_id', 'expression_sample_key']].to_string(index=False)}"
         )
 
     return {
@@ -100,7 +114,6 @@ def validate_join_keys(parsed_meta: pd.DataFrame, expr_long: pd.DataFrame) -> di
         "valid_key_count": len(valid_meta),
         "unmatched_count": 0,
     }
-
 
 def build_qc_summary(
     expr_long: pd.DataFrame,
@@ -147,7 +160,7 @@ def build_qc_summary(
 
 
 def build_baseline_dataset() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    dataset_cfg = load_dataset_config(ACCESSION)
+    dataset_cfg = load_dataset_config()
     gse = load_gse()
 
     meta = gse.phenotype_data.copy()
@@ -155,7 +168,7 @@ def build_baseline_dataset() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, 
     expr_long = load_expression_from_excel()
 
     validation = validate_join_keys(parsed_meta, expr_long)
-    print("Join key validation:", validation)
+    print(f"Join key validation: {validation}")
 
     merged = expr_long.merge(
         parsed_meta[
