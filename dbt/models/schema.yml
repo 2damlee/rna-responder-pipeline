@@ -6,14 +6,15 @@ models:
       - name: gene_id
         tests:
           - not_null
+
       - name: sample_id
         tests:
           - not_null
+
       - name: response_label
         tests:
           - accepted_values:
-              arguments:
-                values: ['responder', 'non_responder']
+              values: ['responder', 'non_responder']
 
   - name: int_baseline_log_expression
     columns:
@@ -26,6 +27,7 @@ models:
       - name: gene_id
         tests:
           - not_null
+
       - name: abs_mean_diff
         tests:
           - not_null
