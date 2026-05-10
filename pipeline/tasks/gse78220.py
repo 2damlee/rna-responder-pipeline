@@ -1,5 +1,4 @@
 from pathlib import Path
-import yaml
 import pandas as pd
 import GEOparse
 
