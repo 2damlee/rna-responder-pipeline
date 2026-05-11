@@ -132,6 +132,21 @@ docs/
 
 ---
 
+## Architecture
+
+See [`docs/architecture.md`](docs/architecture.md) for the full diagram and design decision log.
+
+The data flow from ingestion to analysis:
+```
+GEO (GSE78220)
+→ GEOparse download
+→ registry-driven metadata parsing (datasets.yml)
+→ join key construction + validation
+→ baseline_long.parquet (27 samples × 25,268 genes)
+→ DuckDB + dbt (staging → intermediate → marts)
+→ PCA / heatmap / boxplot
+```
+
 ## How to run
 
 ### 1. Set up environment
@@ -141,6 +156,10 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
 ```
+
+**Expansion path:** The local DuckDB setup mirrors the structure used on Athena. When ready, processed parquets can be uploaded to S3 and the dbt models can run against Athena external tables without model-level changes.
+
+
 
 ### 2. Download the expression file
 
