@@ -20,4 +20,5 @@ models:
       +materialized: table
 
 vars:
-  processed_dir: "data/processed/gse78220"
+  processed_dir_gse78220: "data/processed/gse78220"
+  processed_dir_gse91061: "data/processed/gse91061"

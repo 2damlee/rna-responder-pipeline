@@ -2,21 +2,29 @@ datasets:
   - accession: GSE78220
     source_type: geo
     expression_value_column: VALUE
-
     sample_id_column: geo_accession
-
     response_label_fields:
       - characteristics_ch1.1.anti-pd-1 response
-
     timepoint_fields:
       - characteristics_ch1.12.biopsy time
       - characteristics_ch1.13.biopsy time
       - characteristics_ch1.11.biopsy time
-
     response_mapping:
       Complete Response: responder
       Partial Response: responder
       Progressive Disease: non_responder
-
     baseline_values:
       - pre-treatment
+
+  - accession: GSE91061
+    source_type: geo
+    expression_value_column: VALUE
+    sample_id_column: title
+    response_label_fields:
+      - characteristics_ch1.1.response
+    timepoint_fields:
+      - characteristics_ch1.0.visit (pre or on treatment)
+    response_mapping:
+      PD: non_responder
+    baseline_values:
+      - Pre
