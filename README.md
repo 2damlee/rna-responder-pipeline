@@ -132,21 +132,6 @@ docs/
 
 ---
 
-## Architecture
-
-See [`docs/architecture.md`](docs/architecture.md) for the full diagram and design decision log.
-
-The data flow from ingestion to analysis:
-```
-GEO (GSE78220)
-→ GEOparse download
-→ registry-driven metadata parsing (datasets.yml)
-→ join key construction + validation
-→ baseline_long.parquet (27 samples × 25,268 genes)
-→ DuckDB + dbt (staging → intermediate → marts)
-→ PCA / heatmap / boxplot
-```
-
 ## How to run
 
 ### 1. Set up environment
@@ -268,6 +253,39 @@ The cohort is 27 baseline samples. The analysis is intended to demonstrate data 
 
 ---
 
+## Architecture
+
+See [`docs/architecture.md`](docs/architecture.md) for the full system diagram and design decision log.
+
+Data flow overview:
+```
+GEO (GSE78220)
+→ GEOparse metadata download
+→ registry-driven parsing (config/datasets.yml)
+→ join key construction + validation
+→ baseline_long.parquet (27 samples × 25,268 genes)
+→ DuckDB + dbt (staging → intermediate → marts)
+→ PCA / heatmap / boxplot
+```
+**Expansion path:** The local DuckDB structure mirrors a warehouse-style layered model (staging → intermediate → marts). Processed parquets can be uploaded to S3 and the same dbt models run against Athena external tables without model-level changes.
+
+To run with S3 upload enabled:
+
+```bash
+export S3_BUCKET_NAME=your-bucket-name
+python pipeline/flows/ingest_geo.py --upload-s3
+```
+
+This uploads `baseline_long.parquet`, `parsed_metadata.parquet`, and `expression_long.parquet` to:
+```
+s3://<bucket>/
+processed/
+gse78220/
+baseline_long.parquet
+parsed_metadata.parquet
+expression_long.parquet
+```
+---
 ## Limitations and next steps
 
 The expression data source is FPKM values from a supplementary Excel file. GEO datasets don't always provide this in a consistent format — other datasets may require different extraction logic, which is why the parser is registry-driven rather than hardcoded.
