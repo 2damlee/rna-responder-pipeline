@@ -31,3 +31,18 @@ models:
       - name: abs_mean_diff
         tests:
           - not_null
+  
+  - name: mart_dataset_comparison
+    description: >
+      Cohort-level summary per dataset and response group.
+      Used to compare GSE78220 and GSE91061 baseline cohort compositions.
+    columns:
+      - name: dataset_accession
+        tests:
+          - not_null
+      - name: response_label
+        tests:
+          - not_null
+      - name: sample_count
+        tests:
+          - not_null
