@@ -3,14 +3,6 @@ name: RNA Ingestion Pipeline
 on:
   workflow_dispatch:
     inputs:
-      accession:
-        description: 'GEO accession to process'
-        required: true
-        default: 'GSE91061'
-        type: choice
-        options:
-          - GSE91061
-          - GSE78220
       upload_s3:
         description: 'Upload processed parquets to S3'
         required: false
@@ -33,25 +25,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Download GSE78220 supplementary expression file
-        if: github.event.inputs.accession == 'GSE78220'
-        run: |
-          mkdir -p data/raw/geo
-          curl -L \
-            --retry 3 \
-            --retry-delay 5 \
-            -o data/raw/geo/GSE78220_PatientFPKM.xlsx \
-            "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE78nnn/GSE78220/suppl/GSE78220_PatientFPKM.xlsx"
-          echo "Downloaded file size: $(du -h data/raw/geo/GSE78220_PatientFPKM.xlsx)"
-
-      - name: Run ingestion pipeline
+      - name: Run GSE91061 ingestion pipeline
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
           S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
         run: |
-          ARGS="--accession ${{ github.event.inputs.accession }}"
+          ARGS="--accession GSE91061"
           if [ "${{ github.event.inputs.upload_s3 }}" = "true" ]; then
             ARGS="$ARGS --upload-s3"
           fi
@@ -61,6 +42,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qc-summary-${{ github.event.inputs.accession }}
-          path: outputs/tables/*_qc_summary.csv
+          name: qc-summary-GSE91061
+          path: outputs/tables/gse91061_qc_summary.csv
           retention-days: 30
