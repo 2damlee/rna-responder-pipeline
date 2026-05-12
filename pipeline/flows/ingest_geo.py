@@ -1,3 +1,4 @@
+# pipeline/flows/ingest_geo.py 전체 교체
 from __future__ import annotations
 
 import argparse
@@ -32,12 +33,21 @@ def task_save_baseline_outputs(
 
     summary = {
         "accession": accession,
+        "parsed_metadata_rows": len(parsed_meta),
         "baseline_rows": len(baseline),
-        "baseline_samples": baseline["sample_id"].nunique(),
-        "baseline_genes": baseline["gene_id"].nunique(),
+        "baseline_samples": int(baseline["sample_id"].nunique()),
+        "baseline_genes": int(baseline["gene_id"].nunique()),
     }
     print("Saved outputs summary:", summary)
     return summary
+
+
+@task(name="log_pipeline_run", log_prints=True)
+def task_log_pipeline_run(accession: str, summary: dict):
+    from pipeline.tasks.log_run import log_pipeline_run
+    location = log_pipeline_run(accession, summary)
+    print(f"Run log location: {location}")
+    return location
 
 
 @task(name="upload_to_s3", log_prints=True)
@@ -63,8 +73,11 @@ def geo_rna_ingestion_flow(
     summary = task_save_baseline_outputs(
         parsed_meta, expr_long, baseline, qc_summary, accession
     )
+    task_log_pipeline_run(accession, summary)
+
     if upload_s3:
         task_upload_to_s3(accession)
+
     return summary
 
 
