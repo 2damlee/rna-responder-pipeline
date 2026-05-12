@@ -249,6 +249,12 @@ Expression distribution by response group for the top 5 candidate genes from `ma
 
 Supporting tables for all three are saved to `outputs/tables/`.
 
+### Group comparison scatter — `outputs/figures/gse78220_group_scatter.png`
+
+Mean log2 expression per gene plotted for responders (y-axis) vs non-responders (x-axis). Genes above the diagonal are higher in responders; genes below are higher in non-responders. Top 8 genes by absolute mean difference are labeled. Supporting table: `outputs/tables/gse78220_group_comparison.csv`.
+
+![Group scatter](outputs/figures/gse78220_group_scatter.png)
+
 ---
 
 ## What this project is not
