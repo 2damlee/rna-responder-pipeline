@@ -37,11 +37,16 @@ The supplementary expression file uses patient-label + timepoint tokens as colum
 **DuckDB-first, Athena-ready.**
 dbt models run against a local DuckDB file. The layered modeling structure (staging → intermediate → marts) is identical to what would run on Athena. This choice avoids IAM/Glue/workgroup setup during development while keeping the transform layer portable.
 
+**Parser reuse across datasets.**
+GSE91061 was added as a second dataset without modifying any parser code. The only change was adding a new entry to `config/datasets.yml` with the dataset-specific field names, response value mapping, and baseline label. The same `parse_metadata()` function processed both datasets. This is the concrete demonstration of the registry-driven design — the parser is genuinely reusable.
+
 ---
 
 ## Dataset
 
-**GSE78220** — Melanoma patient cohort, anti-PD-1 immunotherapy.
+### GSE78220 — primary dataset
+
+Melanoma patient cohort treated with anti-PD-1 immunotherapy.
 
 | Metric | Value |
 |---|---|
@@ -49,22 +54,28 @@ dbt models run against a local DuckDB file. The layered modeling structure (stag
 | Baseline cohort samples | 27 |
 | Genes in expression matrix | 25,268 |
 | Baseline expression rows | 682,236 |
-| Null response labels | 0 |
-| Null expression values | 0 |
-| Response field | `characteristics_ch1.1.anti-pd-1 response` |
-| Expression source | `GSE78220_PatientFPKM.xlsx` (supplementary file) |
-| Expression format | FPKM, wide format → long format after ingestion |
 
-Response mapping:
-- `Complete Response` → `responder`
-- `Partial Response` → `responder`
-- `Progressive Disease` → `non_responder`
+Response mapping: `Complete Response` / `Partial Response` → `responder`, `Progressive Disease` → `non_responder`
 
-One sample has no resolvable baseline timepoint and is excluded from the cohort. This is logged as a warning during `validate_join_keys()`, not silently dropped.
+Full QC: `outputs/tables/gse78220_qc_summary.csv`
 
-Full QC metrics: `outputs/tables/gse78220_qc_summary.csv`
+---
 
-See `docs/metadata_notes.md` for the full inspection record and parsing decisions.
+### GSE91061 — second dataset
+
+Melanoma patient cohort treated with anti-PD-1 immunotherapy (BMS dataset, 109 samples across pre/on-treatment timepoints).
+
+| Metric | Value |
+|---|---|
+| Total samples (metadata) | 109 |
+| Baseline cohort samples | [gse91061_qc_summary의 baseline_unique_samples 값] |
+| Genes in expression matrix | 22,187 |
+
+Response mapping: `PD` (Progressive Disease) → `non_responder`. `SD` and `UNK` are excluded as ambiguous.
+
+Note: This dataset was added by extending `config/datasets.yml` only — no changes to parser code were required.
+
+Full QC: `outputs/tables/gse91061_qc_summary.csv`
 
 ---
 
@@ -288,11 +299,12 @@ expression_long.parquet
 ---
 ## Limitations and next steps
 
-The expression data source is FPKM values from a supplementary Excel file. GEO datasets don't always provide this in a consistent format — other datasets may require different extraction logic, which is why the parser is registry-driven rather than hardcoded.
+The expression data source is FPKM values from supplementary files. GEO datasets don't provide this in a consistent format — GSE78220 uses a patient/timepoint-keyed Excel file while GSE91061 uses sample-title-keyed CSV columns. This is why the parser is registry-driven: each dataset's join key construction is handled separately while sharing the same metadata parsing logic.
 
-The `validate_join_keys()` function raises on key mismatches but excludes unresolvable-timepoint samples with a warning. One sample in GSE78220 falls into this category.
+GSE91061 has no responder-labeled samples (only `PD` maps to a usable label). The baseline cohort therefore contains only non-responders from this dataset. A more complete multi-study comparison would require a dataset that includes both response groups.
 
-Planned next steps:
+Potential next steps:
 
-- Add a second dataset (GSE91061) to demonstrate parser reuse and multi-study schema handling across `datasets.yml`
-- Optional: upload processed parquets to S3 and migrate dbt models to `dbt-athena` to validate the "Athena-ready" design claim in practice
+- Upload processed parquets to S3 and run dbt models against Athena external tables to validate the "Athena-ready" design claim in practice
+- Add gene set enrichment analysis (GSEA) on the top differential genes from the mart layer
+- Add a third dataset with both responder and non-responder labels to enable proper multi-study comparison

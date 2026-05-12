@@ -1,0 +1,14 @@
+metric,value
+parsed_metadata_rows,109
+parsed_metadata_unique_samples,109
+expression_long_rows,2418383
+expression_unique_samples,109
+expression_unique_genes,22187
+merged_rows,2418383
+merged_unique_samples,109
+merged_null_response_label_rows,1353407
+merged_null_timepoint_rows,0
+baseline_rows,510301
+baseline_unique_samples,23
+baseline_unique_genes,22187
+baseline_null_expression_rows,0
