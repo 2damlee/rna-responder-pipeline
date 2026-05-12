@@ -1,0 +1,54 @@
+name: RNA Ingestion Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      accession:
+        description: 'GEO accession to process'
+        required: true
+        default: 'GSE78220'
+        type: choice
+        options:
+          - GSE78220
+          - GSE91061
+      upload_s3:
+        description: 'Upload processed parquets to S3'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run ingestion pipeline
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+          S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+        run: |
+          ARGS="--accession ${{ github.event.inputs.accession }}"
+          if [ "${{ github.event.inputs.upload_s3 }}" = "true" ]; then
+            ARGS="$ARGS --upload-s3"
+          fi
+          python -m pipeline.flows.ingest_geo $ARGS
+
+      - name: Upload QC summary as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qc-summary-${{ github.event.inputs.accession }}
+          path: outputs/tables/*_qc_summary.csv
+          retention-days: 30
