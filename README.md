@@ -68,7 +68,7 @@ Melanoma patient cohort treated with anti-PD-1 immunotherapy (BMS dataset, 109 s
 | Metric | Value |
 |---|---|
 | Total samples (metadata) | 109 |
-| Baseline cohort samples | [gse91061_qc_summary의 baseline_unique_samples 값] |
+| Baseline cohort samples | 23 |
 | Genes in expression matrix | 22,187 |
 
 Response mapping: `PD` (Progressive Disease) → `non_responder`. `SD` and `UNK` are excluded as ambiguous.
@@ -270,13 +270,13 @@ See [`docs/architecture.md`](docs/architecture.md) for the full system diagram a
 
 Data flow overview:
 ```
-GEO (GSE78220)
-→ GEOparse metadata download
+GEO (GSE78220, GSE91061)
+→ GEOparse metadata download + supplementary file ingestion
 → registry-driven parsing (config/datasets.yml)
 → join key construction + validation
-→ baseline_long.parquet (27 samples × 25,268 genes)
-→ DuckDB + dbt (staging → intermediate → marts)
-→ PCA / heatmap / boxplot
+→ baseline_long.parquet per dataset
+→ DuckDB + dbt (staging union → intermediate → marts)
+→ PCA / heatmap / boxplot (GSE78220 baseline cohort)
 ```
 **Expansion path:** The local DuckDB structure mirrors a warehouse-style layered model (staging → intermediate → marts). Processed parquets can be uploaded to S3 and the same dbt models run against Athena external tables without model-level changes.
 
