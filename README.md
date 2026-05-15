@@ -11,14 +11,14 @@ This project is a data engineering pipeline — not a statistical analysis tool.
 The biological question provides the domain context: why do some patients respond to immunotherapy while others don't? The engineering question is: how do you reliably extract, validate, and model the data needed to even begin answering that?
 
 ```
-GEO public repository (GSE78220)
-  → GEOparse metadata download
-  → registry-driven metadata parsing (datasets.yml)
-  → supplementary expression file ingestion
+GEO public repository (GSE78220, GSE91061)
+  → GEOparse metadata download + supplementary file ingestion
+  → registry-driven metadata parsing (config/datasets.yml)
   → join key construction + validation
-  → long-format baseline cohort (parquet)
-  → DuckDB + dbt (staging → intermediate → marts)
-  → analysis scripts (PCA, heatmap, boxplot)
+  → long-format baseline cohort (parquet, per dataset)
+  → DuckDB + dbt (staging union → intermediate → marts)
+  → Python analysis (PCA, heatmap, boxplot, group scatter)
+  → GitHub Actions CI (automated GSE91061 pipeline)
 ```
 
 ---
@@ -32,13 +32,16 @@ GEO datasets don't follow a consistent schema. Response labels appear as "R"/"NR
 Early iterations used substring matching ("if 'R' in value → responder"). This produced false positives on field values containing unrelated strings. The current parser uses exact key-value mapping from the registry with no partial matches.
 
 **Join key validation before merge.**
-The supplementary expression file uses patient-label + timepoint tokens as column names (`Pt1.baseline`, `Pt16.OnTx`). These don't directly correspond to GEO sample IDs. A `validate_join_keys()` step checks that every metadata-derived key exists in the expression file before the merge runs — unmatched keys raise an error, and samples without a resolvable timepoint are logged as warnings and excluded rather than silently dropped.
+The supplementary expression file uses patient-label + timepoint tokens as column names (`Pt1.baseline`, `Pt16.OnTx`). These don't directly correspond to GEO sample IDs. `validate_join_keys()` checks that every metadata-derived key exists in the expression file before the merge runs — unmatched keys raise an error, and samples without a resolvable timepoint are logged as warnings and excluded rather than silently dropped.
 
 **DuckDB-first, Athena-ready.**
 dbt models run against a local DuckDB file. The layered modeling structure (staging → intermediate → marts) is identical to what would run on Athena. This choice avoids IAM/Glue/workgroup setup during development while keeping the transform layer portable.
 
 **Parser reuse across datasets.**
-GSE91061 was added as a second dataset without modifying any parser code. The only change was adding a new entry to `config/datasets.yml` with the dataset-specific field names, response value mapping, and baseline label. The same `parse_metadata()` function processed both datasets. This is the concrete demonstration of the registry-driven design — the parser is genuinely reusable.
+GSE91061 was added as a second dataset without modifying any parser code. The only change was adding a new entry to `config/datasets.yml` with dataset-specific field names, response value mapping, and baseline label. The same `parse_metadata()` function processed both datasets. GSE91061 also uses a different join key strategy (title-based rather than patient+timepoint token), handled entirely within the dataset-specific task without touching the shared parser.
+
+**Pipeline observability.**
+Each pipeline run writes a JSON log entry with accession, timestamp, and row counts to `outputs/logs/` locally, or to `s3://<bucket>/logs/pipeline_runs/<accession>/` when `S3_BUCKET_NAME` is set. This provides a lightweight audit trail without external monitoring tooling.
 
 ---
 
@@ -73,7 +76,7 @@ Melanoma patient cohort treated with anti-PD-1 immunotherapy (BMS dataset, 109 s
 
 Response mapping: `PD` (Progressive Disease) → `non_responder`. `SD` and `UNK` are excluded as ambiguous.
 
-Note: This dataset was added by extending `config/datasets.yml` only — no changes to parser code were required.
+This dataset was added by extending `config/datasets.yml` only — no parser code was modified.
 
 Full QC: `outputs/tables/gse91061_qc_summary.csv`
 
@@ -84,7 +87,7 @@ Full QC: `outputs/tables/gse91061_qc_summary.csv`
 | Layer | Tools |
 |---|---|
 | Metadata + Expression | GEOparse, pandas, pyarrow |
-| Orchestration | Prefect 3.x |
+| Orchestration | Prefect 3.x, GitHub Actions |
 | Storage format | Parquet (processed), DuckDB (curated) |
 | Transform | dbt-core, dbt-duckdb |
 | Analysis | scikit-learn, matplotlib |
@@ -101,28 +104,29 @@ config/
 
 pipeline/
   tasks/
-    parse_metadata.py       # registry-driven metadata parser
-    gse78220.py             # GSE78220-specific ingestion, join, QC
+    parse_metadata.py       # registry-driven metadata parser (shared)
+    gse78220.py             # GSE78220 ingestion, join key construction, QC
+    gse91061.py             # GSE91061 ingestion, title-based join, auto-download
+    s3_upload.py            # S3 upload task (optional)
+    log_run.py              # pipeline run logging (local or S3)
   flows/
-    ingest_geo.py           # Prefect flow wrapping the pipeline
+    ingest_geo.py           # Prefect flow, parameterized by --accession
   utils/
     config_loader.py        # datasets.yml loader
-
-scripts/
-  build_gse78220_baseline_dataset.py   # standalone entrypoint
 
 dbt/
   dbt_project.yml
   profiles.yml.example
   models/
     staging/
-      stg_gse78220_expression.sql     # type casting, null filtering
+      stg_gse78220_expression.sql     # unions GSE78220 + GSE91061 parquets
     intermediate/
       int_baseline_log_expression.sql  # log2 transform, baseline filter
-      int_gene_group_stats.sql         # per-gene group statistics
+      int_gene_group_stats.sql         # per-gene mean/stddev by response group
     marts/
-      mart_top_differential_genes.sql  # responder vs non_responder delta
-    schema.yml                         # dbt model tests
+      mart_top_differential_genes.sql  # genes ranked by abs mean difference
+      mart_dataset_comparison.sql      # cohort summary per dataset and group
+    schema.yml                         # 9 dbt tests
 
 analysis/
   utils.py                  # DuckDB connection, shared loaders
@@ -130,15 +134,19 @@ analysis/
     pca.py                  # PCA on top 500 variable genes
     heatmap.py              # heatmap of top 30 differential genes
     boxplot.py              # boxplots of top 5 candidate genes
-  notebooks/
-    gse78220_eda.ipynb      # exploratory analysis
+    group_comparison.py     # responder vs non-responder scatter plot
 
 outputs/
-  tables/
-    gse78220_qc_summary.csv           # pipeline QC metrics (committed)
+  figures/                  # PCA, heatmap, boxplot, group scatter
+  tables/                   # QC summaries, supporting CSVs
 
 docs/
   metadata_notes.md         # raw inspection record, parsing decisions
+  architecture.md           # system diagram and design decisions
+
+.github/
+  workflows/
+    pipeline.yml            # GitHub Actions: GSE91061 pipeline on workflow_dispatch
 ```
 
 ---
@@ -153,61 +161,63 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-**Expansion path:** The local DuckDB setup mirrors the structure used on Athena. When ready, processed parquets can be uploaded to S3 and the dbt models can run against Athena external tables without model-level changes.
+### 2. Download the GSE78220 expression file
 
-
-
-### 2. Download the expression file
-
-The supplementary expression file is not included in the repo. Download `GSE78220_PatientFPKM.xlsx` from the [GSE78220 GEO series page](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE78220) and place it at:
+`GSE78220_PatientFPKM.xlsx` is not included in the repo. Download it from the [GSE78220 GEO series page](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE78220) and place it at:
 
 ```
 data/raw/geo/GSE78220_PatientFPKM.xlsx
 ```
 
+GSE91061's supplementary file is downloaded automatically by the pipeline.
+
 ### 3. Run the ingestion pipeline
 
-**Via Prefect flow (recommended):**
-
 ```bash
-python pipeline/flows/ingest_geo.py
+# GSE78220 (requires manual Excel download above)
+python -m pipeline.flows.ingest_geo --accession GSE78220
+
+# GSE91061 (auto-downloads supplementary file from NCBI)
+python -m pipeline.flows.ingest_geo --accession GSE91061
+
+# With S3 upload (requires S3_BUCKET_NAME in environment)
+python -m pipeline.flows.ingest_geo --accession GSE91061 --upload-s3
 ```
 
-**Via standalone script:**
-
-```bash
-python scripts/build_gse78220_baseline_dataset.py
-```
-
-Both produce the same outputs in `data/processed/gse78220/`:
-- `parsed_metadata.parquet`
-- `expression_long.parquet`
-- `baseline_long.parquet`
-
-And `outputs/tables/gse78220_qc_summary.csv`.
+Each run writes a JSON log to `outputs/logs/` (or S3 if configured).
 
 ### 4. Run dbt models
 
 ```bash
 cp dbt/profiles.yml.example ~/.dbt/profiles.yml
+# Set path to absolute path of data/curated/rna_responder.duckdb
 
-cd dbt
-dbt run
-dbt test
+dbt run --project-dir dbt
+dbt test --project-dir dbt
 ```
 
-This builds the DuckDB file at `data/curated/rna_responder.duckdb` with all four models.
+Builds `data/curated/rna_responder.duckdb` with 5 models. All 9 tests pass.
 
 ### 5. Run analysis scripts
 
 ```bash
-# Run from project root
 python analysis/scripts/pca.py
 python analysis/scripts/heatmap.py
 python analysis/scripts/boxplot.py
+python analysis/scripts/group_comparison.py
 ```
 
 Figures saved to `outputs/figures/`, supporting tables to `outputs/tables/`.
+
+### Running via GitHub Actions (CI)
+
+The repository includes a `workflow_dispatch` workflow for running the GSE91061 pipeline in CI:
+
+```
+GitHub repo → Actions tab → RNA Ingestion Pipeline → Run workflow
+```
+
+The workflow downloads the GSE91061 supplementary file automatically, runs the full ingestion pipeline, and uploads the QC summary as a downloadable artifact. GSE78220 requires a manually downloaded supplementary file and is run locally.
 
 ---
 
@@ -215,45 +225,43 @@ Figures saved to `outputs/figures/`, supporting tables to `outputs/tables/`.
 
 | Model | Layer | Materialization | What it does |
 |---|---|---|---|
-| `stg_gse78220_expression` | staging | view | Reads parquet, casts types, removes nulls |
-| `int_baseline_log_expression` | intermediate | view | log2(expression + 1) transform, baseline + labeled samples only |
+| `stg_gse78220_expression` | staging | view | Unions GSE78220 + GSE91061 baseline parquets, casts types, removes nulls |
+| `int_baseline_log_expression` | intermediate | view | log2(expression + 1) transform, baseline-only, response-labeled samples |
 | `int_gene_group_stats` | intermediate | view | Per-gene mean and stddev by response group |
-| `mart_top_differential_genes` | marts | table | Genes ranked by absolute mean difference between groups |
+| `mart_top_differential_genes` | marts | table | Genes ranked by absolute mean difference between responders and non-responders |
+| `mart_dataset_comparison` | marts | table | Cohort-level summary per dataset and response group (sample count, gene count, expression distribution) |
 
-Analysis scripts read from `int_baseline_log_expression` (sample-level data) and `mart_top_differential_genes` (gene rankings) via DuckDB. No script reads parquet files directly.
+All analysis scripts read from dbt-built models via DuckDB. No script reads parquet files directly.
 
 ---
 
 ## Analysis outputs
 
-### PCA
+### PCA — top 500 variable genes, baseline cohort
 ![PCA](outputs/figures/gse78220_pca_top500_variable_genes.png)
 
-### Heatmap
+Baseline samples projected onto PC1/PC2 after variance-based gene filtering and StandardScaler normalization. Explained variance ratio shown on each axis.
+
+---
+
+### Heatmap — top 30 differential genes
 ![Heatmap](outputs/figures/gse78220_top30_heatmap.png)
 
-### Boxplot
+Log2 expression values for the top 30 genes by absolute mean difference, samples sorted by response label.
+
+---
+
+### Group comparison scatter
+![Group scatter](outputs/figures/gse78220_group_scatter.png)
+
+Mean log2 expression per gene for responders (y-axis) vs non-responders (x-axis). Genes above the diagonal are higher in responders; genes below are higher in non-responders. Top 8 genes by absolute mean difference are labeled.
+
+---
+
+### Boxplot — top 5 candidate genes
 ![Boxplot](outputs/figures/gse78220_candidate_gene_boxplots.png)
 
-### PCA — `outputs/figures/gse78220_pca_top500_variable_genes.png`
-
-Baseline samples projected onto PC1/PC2 after variance-based gene filtering (top 500 genes by variance) and StandardScaler normalization. Explained variance ratio is shown on each axis. Each point is labeled with its sample ID.
-
-### Heatmap — `outputs/figures/gse78220_top30_heatmap.png`
-
-Log2 expression values for the top 30 genes by absolute mean difference, with samples sorted by response label.
-
-### Boxplot — `outputs/figures/gse78220_candidate_gene_boxplots.png`
-
 Expression distribution by response group for the top 5 candidate genes from `mart_top_differential_genes`.
-
-Supporting tables for all three are saved to `outputs/tables/`.
-
-### Group comparison scatter — `outputs/figures/gse78220_group_scatter.png`
-
-Mean log2 expression per gene plotted for responders (y-axis) vs non-responders (x-axis). Genes above the diagonal are higher in responders; genes below are higher in non-responders. Top 8 genes by absolute mean difference are labeled. Supporting table: `outputs/tables/gse78220_group_comparison.csv`.
-
-![Group scatter](outputs/figures/gse78220_group_scatter.png)
 
 ---
 
@@ -261,12 +269,12 @@ Mean log2 expression per gene plotted for responders (y-axis) vs non-responders 
 
 This is exploratory comparison, not formal differential expression analysis. It does not:
 
-- Apply multiple testing correction (e.g., Benjamini-Hochberg)
+- Apply multiple testing correction (Benjamini-Hochberg, FDR)
 - Use a statistical model for differential expression (DESeq2, edgeR, limma)
 - Control for batch effects or other covariates
 - Make causal or clinical claims about biomarkers
 
-The cohort is 27 baseline samples. The analysis is intended to demonstrate data pipeline design, not to produce publication-ready results.
+The cohort is 27 baseline samples. The analysis demonstrates data pipeline design, not publication-ready results.
 
 ---
 
@@ -274,43 +282,31 @@ The cohort is 27 baseline samples. The analysis is intended to demonstrate data 
 
 See [`docs/architecture.md`](docs/architecture.md) for the full system diagram and design decision log.
 
-Data flow overview:
 ```
 GEO (GSE78220, GSE91061)
-→ GEOparse metadata download + supplementary file ingestion
-→ registry-driven parsing (config/datasets.yml)
-→ join key construction + validation
-→ baseline_long.parquet per dataset
-→ DuckDB + dbt (staging union → intermediate → marts)
-→ PCA / heatmap / boxplot (GSE78220 baseline cohort)
-```
-**Expansion path:** The local DuckDB structure mirrors a warehouse-style layered model (staging → intermediate → marts). Processed parquets can be uploaded to S3 and the same dbt models run against Athena external tables without model-level changes.
-
-To run with S3 upload enabled:
-
-```bash
-export S3_BUCKET_NAME=your-bucket-name
-python pipeline/flows/ingest_geo.py --upload-s3
+  → Prefect flow (parameterized by accession)
+  → registry-driven metadata parsing
+  → join key validation
+  → baseline_long.parquet per dataset
+  → DuckDB + dbt (staging union → intermediate → marts)
+  → analysis scripts (PCA, heatmap, boxplot, group scatter)
+  → run log (local JSON or S3)
 ```
 
-This uploads `baseline_long.parquet`, `parsed_metadata.parquet`, and `expression_long.parquet` to:
-```
-s3://<bucket>/
-processed/
-gse78220/
-baseline_long.parquet
-parsed_metadata.parquet
-expression_long.parquet
-```
+**CI:** GSE91061 runs end-to-end on GitHub Actions via `workflow_dispatch`. QC summary is uploaded as a workflow artifact.
+
+**Expansion path:** The local DuckDB setup mirrors the structure used on Athena. Processed parquets can be uploaded to S3 and the same dbt models run against Athena external tables without model-level changes.
+
 ---
+
 ## Limitations and next steps
 
-The expression data source is FPKM values from supplementary files. GEO datasets don't provide this in a consistent format — GSE78220 uses a patient/timepoint-keyed Excel file while GSE91061 uses sample-title-keyed CSV columns. This is why the parser is registry-driven: each dataset's join key construction is handled separately while sharing the same metadata parsing logic.
+The expression data is FPKM values from supplementary files with inconsistent formats across datasets — GSE78220 uses a patient/timepoint-keyed Excel file while GSE91061 uses sample-title-keyed CSV columns. This is why the parser is registry-driven: each dataset's join key construction is handled separately while sharing the same metadata parsing logic.
 
-GSE91061 has no responder-labeled samples (only `PD` maps to a usable label). The baseline cohort therefore contains only non-responders from this dataset. A more complete multi-study comparison would require a dataset that includes both response groups.
+GSE91061 has no responder-labeled samples (`PD` only). A complete multi-study comparison requires a dataset with both response groups.
 
 Potential next steps:
 
 - Upload processed parquets to S3 and run dbt models against Athena external tables to validate the "Athena-ready" design claim in practice
-- Add gene set enrichment analysis (GSEA) on the top differential genes from the mart layer
-- Add a third dataset with both responder and non-responder labels to enable proper multi-study comparison
+- Add gene set enrichment analysis (GSEA) on top differential genes from the mart layer
+- Add a third dataset with both responder and non-responder labels for proper multi-study comparison
