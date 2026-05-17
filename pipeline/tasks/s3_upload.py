@@ -45,24 +45,15 @@ def upload_file_to_s3(local_path: Path, s3_key: str) -> str:
 
 
 def upload_processed_outputs(accession: str = "gse78220") -> dict[str, str]:
-    """
-    Upload processed parquets for a given accession to S3 under:
-      s3://<bucket>/processed/<accession>/
-
-    Returns {local_path_str: s3_uri} for each uploaded file.
-
-    S3 layout mirrors local data/processed/ structure so Athena
-    external tables can point directly to these paths.
-    """
     files_to_upload: dict[Path, str] = {
         Path(f"data/processed/{accession}/baseline_long.parquet"): (
-            f"processed/{accession}/baseline_long.parquet"
+            f"processed/{accession}/baseline/baseline_long.parquet"
         ),
         Path(f"data/processed/{accession}/parsed_metadata.parquet"): (
-            f"processed/{accession}/parsed_metadata.parquet"
+            f"processed/{accession}/metadata/parsed_metadata.parquet"
         ),
         Path(f"data/processed/{accession}/expression_long.parquet"): (
-            f"processed/{accession}/expression_long.parquet"
+            f"processed/{accession}/full/expression_long.parquet"
         ),
     }
 
