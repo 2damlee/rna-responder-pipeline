@@ -88,7 +88,8 @@ Full QC: `outputs/tables/gse91061_qc_summary.csv`
 |---|---|
 | Metadata + Expression | GEOparse, pandas, pyarrow |
 | Orchestration | Prefect 3.x, GitHub Actions |
-| Storage format | Parquet (processed), DuckDB (curated) |
+| Storage | AWS S3 (data lake), Parquet (processed), DuckDB (curated) |
+| Query layer | AWS Athena (external tables on S3 parquet) |
 | Transform | dbt-core, dbt-duckdb |
 | Analysis | scikit-learn, matplotlib |
 | Config | PyYAML, python-dotenv |
@@ -296,6 +297,29 @@ GEO (GSE78220, GSE91061)
 **CI:** GSE91061 runs end-to-end on GitHub Actions via `workflow_dispatch`. QC summary is uploaded as a workflow artifact.
 
 **Expansion path:** The local DuckDB setup mirrors the structure used on Athena. Processed parquets can be uploaded to S3 and the same dbt models run against Athena external tables without model-level changes.
+
+**S3 data lake structure:**
+```
+s3://rna-responder-lake-mjlee/
+processed/
+gse78220/
+baseline/   ← Athena external table points here
+metadata/
+full/
+gse91061/
+baseline/   ← Athena external table points here
+metadata/
+full/
+athena-results/ ← Athena query output location
+logs/
+pipeline_runs/
+gse78220/
+gse91061/
+```
+**Athena external tables** (`rna_pipeline` database):
+- `baseline_gse78220` — 27 samples, 25,268 genes, responder + non_responder
+- `baseline_gse91061` — 23 samples, 22,187 genes, non_responder only
+
 
 ---
 
