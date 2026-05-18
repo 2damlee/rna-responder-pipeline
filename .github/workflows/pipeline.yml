@@ -25,6 +25,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Run tests
+        run: python -m pytest -v
+
       - name: Run GSE91061 ingestion pipeline
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -45,6 +48,3 @@ jobs:
           name: qc-summary-GSE91061
           path: outputs/tables/gse91061_qc_summary.csv
           retention-days: 30
-      
-      - name: Run tests
-        run: pytest -v
