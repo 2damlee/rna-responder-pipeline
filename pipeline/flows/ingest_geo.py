@@ -1,4 +1,3 @@
-# pipeline/flows/ingest_geo.py 전체 교체
 from __future__ import annotations
 
 import argparse
