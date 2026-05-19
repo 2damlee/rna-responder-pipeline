@@ -301,20 +301,20 @@ GEO (GSE78220, GSE91061)
 **S3 data lake structure:**
 ```
 s3://rna-responder-lake-mjlee/
-processed/
-gse78220/
-baseline/   ← Athena external table points here
-metadata/
-full/
-gse91061/
-baseline/   ← Athena external table points here
-metadata/
-full/
-athena-results/ ← Athena query output location
-logs/
-pipeline_runs/
-gse78220/
-gse91061/
+  processed/
+    gse78220/
+      baseline/     ← Athena external table points here
+      metadata/
+      full/
+    gse91061/
+      baseline/     ← Athena external table points here
+      metadata/
+      full/
+  athena-results/   ← Athena query output location
+  logs/
+    pipeline_runs/
+      gse78220/
+      gse91061/
 ```
 **Athena external tables** (`rna_pipeline` database):
 - `baseline_gse78220` — 27 samples, 25,268 genes, responder + non_responder
@@ -331,6 +331,6 @@ GSE91061 has no responder-labeled samples (`PD` only). A complete multi-study co
 
 Potential next steps:
 
-- Upload processed parquets to S3 and run dbt models against Athena external tables to validate the "Athena-ready" design claim in practice
 - Add gene set enrichment analysis (GSEA) on top differential genes from the mart layer
 - Add a third dataset with both responder and non-responder labels for proper multi-study comparison
+- Automate Glue Catalog table registration via Python SDK (currently done manually via console)

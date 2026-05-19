@@ -27,11 +27,12 @@ models:
       - name: gene_id
         tests:
           - not_null
+          - unique
 
       - name: abs_mean_diff
         tests:
           - not_null
-  
+
   - name: mart_dataset_comparison
     description: >
       Cohort-level summary per dataset and response group.
