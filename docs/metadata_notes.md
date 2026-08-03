@@ -185,3 +185,11 @@ print(f"overlap: {len(a & b)}  (of {len(a)} vs {len(b)})")
 Fix (T2): group `int_gene_group_stats` by `dataset_accession` as well, and join
 within a single dataset in the mart, so the comparison is never implicitly
 cross-study. This makes the single-study scope explicit instead of silent.
+
+### Confirmed result (run locally, 2026)
+- GSE78220 gene_id sample: PRODH2, LCN2, LINC00870 (HGNC symbols)
+- GSE91061 gene_id sample: 100874086, 57590, 283748 (numeric Entrez IDs)
+- overlap: 0 of the two gene_id sets
+- => Case A: the two namespaces do not overlap. GSE91061 never contributed rows
+  to mart_top_differential_genes; committed numbers were already GSE78220-only.
+  The T2 fix makes this scope explicit and prevents future pooling.
