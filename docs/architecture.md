@@ -57,3 +57,36 @@ staging -> intermediate -> marts
 ```
 
 This keeps the project portable to Athena later.
+### Group statistics are computed per dataset (no cross-study comparison)
+
+The staging layer unions baseline cohorts from every configured dataset into a
+single table. That is deliberate for storage and for the per-dataset comparison
+mart — but it creates a trap for group statistics.
+
+`int_gene_group_stats` therefore groups by `dataset_accession` in addition to
+`gene_id` and `response_label`, and `mart_top_differential_genes` joins the
+responder and non_responder means on `(gene_id, dataset_accession)`. Every row
+in the differential-genes mart compares two response groups **from the same
+study**.
+
+Reasoning:
+
+- The two current datasets do not have symmetric labels. GSE78220 has both
+  responder and non_responder; GSE91061 (PD only) has non_responder only. If
+  the group means were pooled across studies, `non_responder_mean` would mix
+  the two studies while `responder_mean` came from one, so the difference would
+  confound response with study.
+- FPKM values are not normalized across studies (different pipelines, different
+  gene_id namespaces — HGNC symbols vs hg19KnownGene). Pooling them is not a
+  valid comparison even before considering batch effects.
+
+With the current data this means only GSE78220 produces rows in the
+differential-genes mart. That is the honest result: it is the only dataset with
+both groups. The previous version hid this — the union suggested a multi-study
+comparison, but the inner join silently dropped the second study (or, for any
+overlapping gene_id, quietly pooled incomparable FPKM values). Making the scope
+per-dataset turns a silent behavior into an explicit, testable one.
+
+Proper cross-study differential expression would require gene_id harmonization
+and a normalization/batch-correction step (e.g. limma/ComBat). That is out of
+scope for this project and not claimed anywhere.
