@@ -150,6 +150,35 @@ def build_qc_summary(
     )
 
 
+def build_baseline_from_frames(
+    parsed_meta: pd.DataFrame,
+    expr_long: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Merge parsed metadata onto expression and derive the baseline cohort.
+
+    Pure transform: no network, no file I/O. Kept separate from
+    build_baseline_dataset() so it can be unit-tested with small fixtures.
+
+    Returns (merged, baseline, qc_summary).
+    """
+    merged = expr_long.merge(
+        parsed_meta[[
+            "sample_id", "response_label", "timepoint", "dataset_accession"
+        ]],
+        on="sample_id",
+        how="left",
+    )
+
+    baseline = merged[
+        (merged["timepoint"] == "baseline")
+        & (merged["response_label"].isin(["responder", "non_responder"]))
+        & (merged["expression"].notna())
+    ].copy()
+
+    qc_summary = build_qc_summary(expr_long, parsed_meta, merged, baseline)
+    return merged, baseline, qc_summary
+
+
 def build_baseline_dataset() -> tuple[
     pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame
 ]:
@@ -168,19 +197,9 @@ def build_baseline_dataset() -> tuple[
     overlap = validate_sample_overlap(parsed_meta, expr_long)
     print(f"Sample overlap validation: {overlap}")
 
-    merged = expr_long.merge(
-        parsed_meta[[
-            "sample_id", "response_label", "timepoint", "dataset_accession"
-        ]],
-        on="sample_id",
-        how="left",
+    merged, baseline, qc_summary = build_baseline_from_frames(
+        parsed_meta, expr_long
     )
-
-    baseline = merged[
-        (merged["timepoint"] == "baseline")
-        & (merged["response_label"].isin(["responder", "non_responder"]))
-        & (merged["expression"].notna())
-    ].copy()
 
     print(
         f"Baseline cohort: {baseline['sample_id'].nunique()} samples, "
@@ -188,7 +207,6 @@ def build_baseline_dataset() -> tuple[
         f"{len(baseline)} rows"
     )
 
-    qc_summary = build_qc_summary(expr_long, parsed_meta, merged, baseline)
     return parsed_meta, expr_long, baseline, qc_summary
 
 

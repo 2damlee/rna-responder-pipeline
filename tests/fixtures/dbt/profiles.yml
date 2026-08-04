@@ -1,0 +1,9 @@
+# Self-contained dbt profile for the fixture build (no network, throwaway DB).
+# Used by `make dbt-test-fixture` and by CI.
+rna_pipeline:
+  target: fixture
+  outputs:
+    fixture:
+      type: duckdb
+      path: "tests/fixtures/dbt/_fixture_build.duckdb"
+      threads: 4

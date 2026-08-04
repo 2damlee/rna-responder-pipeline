@@ -147,17 +147,17 @@ def build_qc_summary(
     )
 
 
-def build_baseline_dataset() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    dataset_cfg = load_dataset_config(ACCESSION)
-    gse = load_gse()
+def build_baseline_from_frames(
+    parsed_meta: pd.DataFrame,
+    expr_long: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Merge parsed metadata onto expression and derive the baseline cohort.
 
-    meta = gse.phenotype_data.copy()
-    parsed_meta = prepare_metadata_for_join(meta, dataset_cfg)
-    expr_long = load_expression_from_excel()
+    Pure transform: no network, no file I/O. Kept separate from
+    build_baseline_dataset() so it can be unit-tested with small fixtures.
 
-    validation = validate_join_keys(parsed_meta, expr_long)
-    print(f"Join key validation: {validation}")
-
+    Returns (merged, baseline, qc_summary).
+    """
     merged = expr_long.merge(
         parsed_meta[
             [
@@ -180,6 +180,21 @@ def build_baseline_dataset() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, 
     ].copy()
 
     qc_summary = build_qc_summary(expr_long, parsed_meta, merged, baseline)
+    return merged, baseline, qc_summary
+
+
+def build_baseline_dataset() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    dataset_cfg = load_dataset_config(ACCESSION)
+    gse = load_gse()
+
+    meta = gse.phenotype_data.copy()
+    parsed_meta = prepare_metadata_for_join(meta, dataset_cfg)
+    expr_long = load_expression_from_excel()
+
+    validation = validate_join_keys(parsed_meta, expr_long)
+    print(f"Join key validation: {validation}")
+
+    _, baseline, qc_summary = build_baseline_from_frames(parsed_meta, expr_long)
     return parsed_meta, expr_long, baseline, qc_summary
 
 

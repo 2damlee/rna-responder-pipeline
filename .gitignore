@@ -27,3 +27,6 @@ outputs/logs/
 logs/
 target/
 dbt_packages/
+
+# dbt fixture build artifact
+tests/fixtures/dbt/_fixture_build.duckdb

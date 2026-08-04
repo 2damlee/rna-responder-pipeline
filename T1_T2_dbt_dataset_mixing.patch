@@ -1,0 +1,247 @@
+From c89458a0241ef0781a83c9b353b8bd3ebd2e8672 Mon Sep 17 00:00:00 2001
+From: minjeong <dev@local>
+Date: Mon, 3 Aug 2026 13:54:02 +0000
+Subject: [PATCH 1/2] docs(T1): audit gene_id namespaces; GSE78220=HGNC
+ symbols, GSE91061 suspected different
+
+- Confirm GSE78220 gene_id are HGNC symbols from committed outputs
+- Record that GSE91061 (hg19KnownGene) is likely a different namespace, not
+  directly verifiable in this environment; add local confirmation command
+- Document that the mart inner-join either silently drops GSE91061 (no overlap)
+  or pools incomparable FPKM (overlap) -> motivates the T2 per-dataset fix
+---
+ docs/metadata_notes.md | 49 +++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 48 insertions(+), 1 deletion(-)
+
+diff --git a/docs/metadata_notes.md b/docs/metadata_notes.md
+index f96bee5..dc90022 100644
+--- a/docs/metadata_notes.md
++++ b/docs/metadata_notes.md
+@@ -137,4 +137,51 @@ Selected field:
+ Expression columns use Pt-style labels (e.g. `Pt1_Pre_AD101148-6`),
+ which match the metadata `title` field — NOT `geo_accession`.
+ Join path:
+-  expression.title_key → metadata.title → metadata.geo_accession (sample_id)
+\ No newline at end of file
++  expression.title_key → metadata.title → metadata.geo_accession (sample_id)
++---
++
++## gene_id namespace audit (T1)
++
++Question: do GSE78220 and GSE91061 use the same gene_id identifier system?
++This matters because `mart_top_differential_genes` inner-joins the two response
++groups on `gene_id`. If the two datasets use different namespaces, the join
++behaves very differently than the model name suggests.
++
++### Confirmed
++- **GSE78220 `gene_id` = HGNC gene symbols.** Verified from committed outputs
++  (`outputs/tables/gse78220_top5_differential_genes.csv`,
++  `gse78220_heatmap_matrix_top30.csv`): values are `SNORD33`, `CDH1`, `CRYAB`,
++  `FABP7`, `LOC283352`, `MIR4442`, etc. — symbol format, not numeric IDs.
++
++### Not confirmed in this environment
++- **GSE91061 `gene_id` = unknown, suspected different namespace.** The
++  supplementary file is `...hg19KnownGene.fpkm.csv.gz`. "KnownGene" strongly
++  suggests UCSC KnownGene / Entrez-style identifiers rather than HGNC symbols,
++  but this was NOT directly inspected (no committed gene_id for GSE91061; the
++  expression file was not re-downloaded).
++
++### How to confirm (run locally, where the parquets exist)
++```python
++import pandas as pd
++a = set(pd.read_parquet("data/processed/gse78220/baseline_long.parquet")["gene_id"])
++b = set(pd.read_parquet("data/processed/gse91061/baseline_long.parquet")["gene_id"])
++print("gse78220 sample:", list(a)[:5])
++print("gse91061 sample:", list(b)[:5])
++print(f"overlap: {len(a & b)}  (of {len(a)} vs {len(b)})")
++```
++
++### Consequence for the current mart (either way, the fix is the same)
++- responder rows only ever come from GSE78220 (GSE91061 is non_responder-only),
++  so `responder_mean` is always GSE78220.
++- `mart_top_differential_genes` inner-joins responder × non_responder on gene_id.
++- **If overlap ~ 0 (suspected):** only GSE78220 symbols survive the join, and
++  their `non_responder_mean` is also GSE78220-only. GSE91061 contributes nothing
++  to the mart — it is silently dropped despite appearing in staging/intermediate.
++  The committed numbers are therefore already GSE78220-only.
++- **If overlap is large:** `non_responder_mean` for overlapping genes mixes both
++  studies. Because FPKM normalization differs across studies, that mean is not a
++  valid responder-vs-non_responder comparison.
++
++Fix (T2): group `int_gene_group_stats` by `dataset_accession` as well, and join
++within a single dataset in the mart, so the comparison is never implicitly
++cross-study. This makes the single-study scope explicit instead of silent.
+-- 
+2.43.0
+
+
+From d9ce1107b878ad445d8ee2cc96ed5bdcabf42681 Mon Sep 17 00:00:00 2001
+From: minjeong <dev@local>
+Date: Mon, 3 Aug 2026 13:54:02 +0000
+Subject: [PATCH 2/2] fix(T2): compute group stats and differential genes per
+ dataset
+
+Cross-study confounding: the staging union pooled baseline cohorts from all
+datasets, but int_gene_group_stats grouped only by (gene_id, response_label).
+Since GSE91061 is non_responder-only, a gene's non_responder mean silently mixed
+studies with different FPKM normalization, making response differences
+indistinguishable from batch differences.
+
+- int_gene_group_stats: add dataset_accession to grouping key
+- mart_top_differential_genes: join responder/non_responder on
+  (gene_id, dataset_accession); expose dataset_accession
+- schema.yml: drop global unique on gene_id, add dataset_accession not_null
+- architecture.md: document per-dataset scope decision and its limits
+
+Verified with synthetic fixtures via real dbt build (15 pass): CDH1
+non_responder_mean 4.25 (pooled) -> 1.5 (per-dataset); GSE91061 correctly yields
+no differential-genes rows.
+---
+ .../intermediate/int_gene_group_stats.sql     |  8 ++++-
+ .../marts/mart_top_differential_genes.sql     | 23 ++++++++++--
+ dbt/models/schema.yml                         |  8 ++++-
+ docs/architecture.md                          | 35 ++++++++++++++++++-
+ 4 files changed, 69 insertions(+), 5 deletions(-)
+
+diff --git a/dbt/models/intermediate/int_gene_group_stats.sql b/dbt/models/intermediate/int_gene_group_stats.sql
+index da290d6..060b5ee 100644
+--- a/dbt/models/intermediate/int_gene_group_stats.sql
++++ b/dbt/models/intermediate/int_gene_group_stats.sql
+@@ -1,8 +1,14 @@
++-- Group statistics are computed PER DATASET.
++-- Without dataset_accession in the grouping key, a gene's non_responder mean
++-- would silently pool samples from different studies (different FPKM
++-- normalization), making responder-vs-non_responder differences
++-- indistinguishable from study/batch differences.
+ select
++    dataset_accession,
+     gene_id,
+     response_label,
+     count(distinct sample_id) as sample_count,
+     avg(log2_expression) as mean_log2_expression,
+     stddev_samp(log2_expression) as std_log2_expression
+ from {{ ref('int_baseline_log_expression') }}
+-group by 1, 2
+\ No newline at end of file
++group by 1, 2, 3
+\ No newline at end of file
+diff --git a/dbt/models/marts/mart_top_differential_genes.sql b/dbt/models/marts/mart_top_differential_genes.sql
+index cefc38b..32726aa 100644
+--- a/dbt/models/marts/mart_top_differential_genes.sql
++++ b/dbt/models/marts/mart_top_differential_genes.sql
+@@ -1,5 +1,21 @@
++-- Genes ranked by absolute difference in mean log2 expression between
++-- responders and non-responders, computed WITHIN a single dataset.
++--
++-- The responder and non_responder means are joined on (gene_id,
++-- dataset_accession), so every row compares two groups from the SAME study.
++-- Cross-study comparison is intentionally impossible here: FPKM normalization
++-- differs across studies, and the two datasets use different gene_id
++-- namespaces (GSE78220 = HGNC symbols, GSE91061 = hg19KnownGene). See
++-- docs/metadata_notes.md (gene_id namespace audit) and docs/architecture.md.
++--
++-- Consequence with the current data: only GSE78220 has both response groups,
++-- so only GSE78220 produces rows. GSE91061 (non_responder only) produces none.
++-- That is correct and now explicit, rather than the group means being silently
++-- polluted.
++
+ with responder as (
+     select
++        dataset_accession,
+         gene_id,
+         mean_log2_expression as responder_mean
+     from {{ ref('int_gene_group_stats') }}
+@@ -7,6 +23,7 @@ with responder as (
+ ),
+ non_responder as (
+     select
++        dataset_accession,
+         gene_id,
+         mean_log2_expression as non_responder_mean
+     from {{ ref('int_gene_group_stats') }}
+@@ -14,11 +31,13 @@ non_responder as (
+ )
+ 
+ select
++    r.dataset_accession,
+     r.gene_id,
+     r.responder_mean,
+     n.non_responder_mean,
+     abs(r.responder_mean - n.non_responder_mean) as abs_mean_diff
+ from responder r
+ join non_responder n
+-    on r.gene_id = n.gene_id
+-order by abs_mean_diff desc
+\ No newline at end of file
++    on  r.gene_id = n.gene_id
++    and r.dataset_accession = n.dataset_accession
++order by abs_mean_diff desc
+diff --git a/dbt/models/schema.yml b/dbt/models/schema.yml
+index 219c899..a7e4d80 100644
+--- a/dbt/models/schema.yml
++++ b/dbt/models/schema.yml
+@@ -24,10 +24,16 @@ models:
+ 
+   - name: mart_top_differential_genes
+     columns:
++      # gene_id is unique only WITHIN a dataset, not globally, now that the
++      # mart carries dataset_accession. Compound (gene_id, dataset_accession)
++      # uniqueness is covered by a singular test added in T3, not here.
+       - name: gene_id
+         tests:
+           - not_null
+-          - unique
++
++      - name: dataset_accession
++        tests:
++          - not_null
+ 
+       - name: abs_mean_diff
+         tests:
+diff --git a/docs/architecture.md b/docs/architecture.md
+index c0f5bcc..c8a8d92 100644
+--- a/docs/architecture.md
++++ b/docs/architecture.md
+@@ -56,4 +56,37 @@ DuckDB is used for local development because it avoids S3, Glue, IAM, and Athena
+ staging -> intermediate -> marts
+ ```
+ 
+-This keeps the project portable to Athena later.
+\ No newline at end of file
++This keeps the project portable to Athena later.
++### Group statistics are computed per dataset (no cross-study comparison)
++
++The staging layer unions baseline cohorts from every configured dataset into a
++single table. That is deliberate for storage and for the per-dataset comparison
++mart — but it creates a trap for group statistics.
++
++`int_gene_group_stats` therefore groups by `dataset_accession` in addition to
++`gene_id` and `response_label`, and `mart_top_differential_genes` joins the
++responder and non_responder means on `(gene_id, dataset_accession)`. Every row
++in the differential-genes mart compares two response groups **from the same
++study**.
++
++Reasoning:
++
++- The two current datasets do not have symmetric labels. GSE78220 has both
++  responder and non_responder; GSE91061 (PD only) has non_responder only. If
++  the group means were pooled across studies, `non_responder_mean` would mix
++  the two studies while `responder_mean` came from one, so the difference would
++  confound response with study.
++- FPKM values are not normalized across studies (different pipelines, different
++  gene_id namespaces — HGNC symbols vs hg19KnownGene). Pooling them is not a
++  valid comparison even before considering batch effects.
++
++With the current data this means only GSE78220 produces rows in the
++differential-genes mart. That is the honest result: it is the only dataset with
++both groups. The previous version hid this — the union suggested a multi-study
++comparison, but the inner join silently dropped the second study (or, for any
++overlapping gene_id, quietly pooled incomparable FPKM values). Making the scope
++per-dataset turns a silent behavior into an explicit, testable one.
++
++Proper cross-study differential expression would require gene_id harmonization
++and a normalization/batch-correction step (e.g. limma/ComBat). That is out of
++scope for this project and not claimed anywhere.
+-- 
+2.43.0
+

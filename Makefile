@@ -1,4 +1,4 @@
-.PHONY: ingest-78220 ingest-91061 ingest-all dbt-run dbt-test test analysis pipeline clean help
+.PHONY: ingest-78220 ingest-91061 ingest-all dbt-run dbt-test dbt-test-fixture test analysis pipeline clean help
 
 help:
 	@echo "Available commands:"
@@ -25,6 +25,10 @@ dbt-run:
 
 dbt-test:
 	dbt test --project-dir dbt
+	
+dbt-test-fixture:
+	dbt build --project-dir dbt --profiles-dir tests/fixtures/dbt \
+		--vars '{processed_dir_gse78220: tests/fixtures/dbt/gse78220, processed_dir_gse91061: tests/fixtures/dbt/gse91061}'
 
 test:
 	python -m pytest -v
