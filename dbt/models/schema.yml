@@ -24,10 +24,16 @@ models:
 
   - name: mart_top_differential_genes
     columns:
+      # gene_id is unique only WITHIN a dataset, not globally, now that the
+      # mart carries dataset_accession. Compound (gene_id, dataset_accession)
+      # uniqueness is covered by a singular test added in T3, not here.
       - name: gene_id
         tests:
           - not_null
-          - unique
+
+      - name: dataset_accession
+        tests:
+          - not_null
 
       - name: abs_mean_diff
         tests:
